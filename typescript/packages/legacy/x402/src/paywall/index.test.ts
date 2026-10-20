@@ -1,10 +1,21 @@
 import { runInNewContext } from "node:vm";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { getPaywallHtml } from "./index";
 
+const mockTemplate = vi.hoisted(() => {
+  const html = "<!DOCTYPE html><html><head></head><body></body></html>";
+  return { html, defaultHtml: html };
+});
+
 vi.mock("./gen/template", () => ({
-  PAYWALL_TEMPLATE: "<!DOCTYPE html><html><head></head><body></body></html>",
+  get PAYWALL_TEMPLATE() {
+    return mockTemplate.html;
+  },
 }));
+
+afterEach(() => {
+  mockTemplate.html = mockTemplate.defaultHtml;
+});
 
 type PaywallOptions = Parameters<typeof getPaywallHtml>[0];
 
@@ -71,9 +82,20 @@ const inputCases: {
  * Reads configuration after checking the enclosing script element.
  *
  * @param html - The generated paywall HTML
+ * @param template - The shipped template, when testing its configuration insertion
  * @returns The evaluated paywall configuration
  */
-function readConfig(html: string): PaywallOptions {
+function readConfig(html: string, template?: string): PaywallOptions {
+  if (template) {
+    const insertionOffset = template.indexOf("</head>");
+    expect(insertionOffset).toBeGreaterThanOrEqual(0);
+    const suffix = template.slice(insertionOffset);
+    expect(html.startsWith(template.slice(0, insertionOffset))).toBe(true);
+    expect(html.endsWith(suffix)).toBe(true);
+    // Exclude the shipped wallet application; only execute the inserted config.
+    html = html.slice(insertionOffset, html.length - suffix.length);
+  }
+
   // Check HTML boundaries before evaluating JavaScript string contents.
   const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script\s*>/gi)];
   expect(scripts).toHaveLength(1);
@@ -101,6 +123,26 @@ describe("legacy v1 paywall inline script safety", () => {
 
       expect(readConfig(getPaywallHtml(input))).toMatchObject(input);
     });
+
+    it.each(["$'", "$$", "$&", "$`"])(
+      "preserves literal %s with the shipped template",
+      async token => {
+        const { PAYWALL_TEMPLATE } =
+          await vi.importActual<typeof import("./gen/template")>("./gen/template");
+        mockTemplate.html = PAYWALL_TEMPLATE;
+        const input = options(`Store ${token} Specials`);
+
+        expect(readConfig(getPaywallHtml(input), PAYWALL_TEMPLATE)).toMatchObject(input);
+      },
+    );
+  });
+
+  it("initializes configuration with the shipped template", async () => {
+    const { PAYWALL_TEMPLATE } =
+      await vi.importActual<typeof import("./gen/template")>("./gen/template");
+    mockTemplate.html = PAYWALL_TEMPLATE;
+
+    expect(readConfig(getPaywallHtml(baseOptions), PAYWALL_TEMPLATE)).toMatchObject(baseOptions);
   });
 
   it("keeps omitted optional configuration strings empty", () => {

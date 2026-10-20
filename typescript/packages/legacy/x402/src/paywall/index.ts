@@ -71,5 +71,5 @@ export function getPaywallHtml({
   </script>`;
 
   // Inject the configuration script into the head
-  return PAYWALL_TEMPLATE.replace("</head>", `${configScript}\n</head>`);
+  return PAYWALL_TEMPLATE.replace("</head>", () => `${configScript}\n</head>`);
 }

@@ -59,5 +59,5 @@ export function getSvmPaywallHtml(options: SvmPaywallOptions): string {
     ${logOnTestnet}
   </script>`;
 
-  return SVM_PAYWALL_TEMPLATE.replace("</head>", `${configScript}\n</head>`);
+  return SVM_PAYWALL_TEMPLATE.replace("</head>", () => `${configScript}\n</head>`);
 }

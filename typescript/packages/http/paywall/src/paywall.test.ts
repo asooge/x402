@@ -1,8 +1,14 @@
 import { runInNewContext } from "node:vm";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { getEvmPaywallHtml } from "./evm/paywall";
 import { getSvmPaywallHtml } from "./svm/paywall";
 import { getAvmPaywallHtml } from "./avm/paywall";
+import { getEvmTemplate } from "./evm/template-loader";
+import { getSvmTemplate } from "./svm/template-loader";
+import { getAvmTemplate } from "./avm/template-loader";
+import { EVM_PAYWALL_TEMPLATE } from "./evm/gen/template";
+import { SVM_PAYWALL_TEMPLATE } from "./svm/gen/template";
+import { AVM_PAYWALL_TEMPLATE } from "./avm/gen/template";
 import { ALGORAND_NETWORK_REFS, SOLANA_NETWORK_REFS } from "./paywallUtils";
 
 type PaywallOptions = Parameters<typeof getSvmPaywallHtml>[0];
@@ -86,7 +92,17 @@ const inputCases: {
 // The shared test setup supplies an HTML template with no scripts of its own.
 // Inspect the HTML boundary before evaluating JavaScript: evaluating the entire
 // config directly would miss a closing script tag inside a JavaScript string.
-function readConfig(html: string): PaywallOptions {
+function readConfig(html: string, template?: string): PaywallOptions {
+  if (template) {
+    const insertionOffset = template.indexOf("</head>");
+    expect(insertionOffset).toBeGreaterThanOrEqual(0);
+    const suffix = template.slice(insertionOffset);
+    expect(html.startsWith(template.slice(0, insertionOffset))).toBe(true);
+    expect(html.endsWith(suffix)).toBe(true);
+    // Exclude the shipped wallet application; only execute the inserted config.
+    html = html.slice(insertionOffset, html.length - suffix.length);
+  }
+
   const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script\s*>/gi)];
   expect(scripts).toHaveLength(1);
   expect(html.match(/<\/script\s*>/gi)).toHaveLength(1);
@@ -101,11 +117,15 @@ const paywallCases = [
   {
     name: "EVM",
     generateHtml: getEvmPaywallHtml,
+    getTemplate: getEvmTemplate,
+    template: EVM_PAYWALL_TEMPLATE,
     requirement: baseOptions.paymentRequired.accepts[0],
   },
   {
     name: "SVM",
     generateHtml: getSvmPaywallHtml,
+    getTemplate: getSvmTemplate,
+    template: SVM_PAYWALL_TEMPLATE,
     requirement: {
       ...baseOptions.paymentRequired.accepts[0],
       network: `solana:${SOLANA_NETWORK_REFS.MAINNET}`,
@@ -116,6 +136,8 @@ const paywallCases = [
   {
     name: "AVM",
     generateHtml: getAvmPaywallHtml,
+    getTemplate: getAvmTemplate,
+    template: AVM_PAYWALL_TEMPLATE,
     requirement: {
       ...baseOptions.paymentRequired.accepts[0],
       network: `algorand:${ALGORAND_NETWORK_REFS.TESTNET}`,
@@ -127,7 +149,7 @@ const paywallCases = [
 
 describe.each(paywallCases)(
   "$name paywall inline script safety",
-  ({ generateHtml, requirement }) => {
+  ({ generateHtml, getTemplate, template, requirement }) => {
     const networkOptions: PaywallOptions = {
       ...baseOptions,
       paymentRequired: { ...baseOptions.paymentRequired, accepts: [requirement] },
@@ -153,6 +175,19 @@ describe.each(paywallCases)(
 
         expect(readConfig(generateHtml(input))).toMatchObject(input);
       });
+
+      it.each(["$'", "$$", "$&", "$`"])("preserves literal %s with the shipped template", token => {
+        const input = options(networkOptions, `Store ${token} Specials`);
+        vi.mocked(getTemplate).mockReturnValueOnce(template);
+
+        expect(readConfig(generateHtml(input), template)).toMatchObject(input);
+      });
+    });
+
+    it("initializes configuration with the shipped template", () => {
+      vi.mocked(getTemplate).mockReturnValueOnce(template);
+
+      expect(readConfig(generateHtml(networkOptions), template)).toMatchObject(networkOptions);
     });
 
     it("keeps omitted faucet URLs undefined and optional metadata empty", () => {

@@ -75,5 +75,5 @@ export function getEvmPaywallHtml(options: EvmPaywallOptions): string {
     ${logOnTestnet}
   </script>`;
 
-  return EVM_PAYWALL_TEMPLATE.replace("</head>", `${configScript}\n</head>`);
+  return EVM_PAYWALL_TEMPLATE.replace("</head>", () => `${configScript}\n</head>`);
 }

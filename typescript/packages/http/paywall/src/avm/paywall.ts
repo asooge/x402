@@ -55,5 +55,5 @@ export function getAvmPaywallHtml(options: AvmPaywallOptions): string {
     ${logOnTestnet}
   </script>`;
 
-  return AVM_PAYWALL_TEMPLATE.replace("</head>", `${configScript}\n</head>`);
+  return AVM_PAYWALL_TEMPLATE.replace("</head>", () => `${configScript}\n</head>`);
 }
